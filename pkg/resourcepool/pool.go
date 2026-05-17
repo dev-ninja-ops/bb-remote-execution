@@ -28,14 +28,16 @@ type Allocation struct {
 // request is admitted). Same for memoryBytes. For GPUs the configured
 // UUID list also caps the total.
 type Pool struct {
-	mu        sync.Mutex
-	cond      *sync.Cond
-	cpuTotal  uint32
-	cpuFree   uint32
-	memTotal  uint64
-	memFree   uint64
-	gpusFree  []string
-	gpusTotal int
+	mu         sync.Mutex
+	cond       *sync.Cond
+	cpuTotal   uint32
+	cpuFree    uint32
+	memTotal   uint64
+	memFree    uint64
+	gpusFree   []string
+	gpusTotal  int
+	defaultCPU uint32
+	defaultMem uint64
 }
 
 // NewPool constructs a Pool from a ResourcePoolConfiguration. A nil
@@ -52,10 +54,21 @@ func NewPool(cfg *bb_worker.ResourcePoolConfiguration) *Pool {
 			p.gpusFree = append(p.gpusFree, cfg.GpuUuids...)
 			p.gpusTotal = len(cfg.GpuUuids)
 		}
+		p.defaultCPU = cfg.DefaultCpuMillicores
+		p.defaultMem = cfg.DefaultMemoryBytes
 	}
 	p.cond = sync.NewCond(&p.mu)
 	return p
 }
+
+// DefaultCPUMillicores returns the per-action CPU default to apply
+// when an action's REv2 platform does not set the "cpu" property. 0
+// means no default.
+func (p *Pool) DefaultCPUMillicores() uint32 { return p.defaultCPU }
+
+// DefaultMemoryBytes returns the per-action memory default. 0 means
+// no default.
+func (p *Pool) DefaultMemoryBytes() uint64 { return p.defaultMem }
 
 // Acquire blocks until the requested resources can be reserved or the
 // context is cancelled. The returned Allocation must be passed back to

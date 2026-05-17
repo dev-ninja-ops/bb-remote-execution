@@ -196,6 +196,14 @@ message ResourcePoolConfiguration {
   // hand out. The list also caps the total number of GPUs gated.
   // Empty => GPU gating disabled.
   repeated string gpu_uuids = 3;
+
+  // Defaults applied when an action's REv2 Platform does not set the
+  // corresponding property. Use these to make sure every action runs
+  // under a cgroup with sensible limits, even when the client did not
+  // ask explicitly. 0 means "no default — leave that dimension
+  // unmetered for actions that don't specify it".
+  uint32 default_cpu_millicores = 4;
+  uint64 default_memory_bytes = 5;
 }
 
 message BuildDirectoryConfiguration {

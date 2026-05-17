@@ -94,6 +94,11 @@ With this fork, when a client sets REv2 `exec_properties` like
    throttling and OOM-kills against those limits for the duration of
    the action; the cgroup is torn down when the action exits.
 
+If the client **does not** set `cpu` / `memory` in `exec_properties`,
+the worker substitutes the pool's configured defaults (e.g. 1 core /
+2 GiB) so the action still lands in a properly-bounded cgroup. No
+silently-unmetered jobs. See feature 2 below.
+
 ### What's new, by component
 
 #### 1. `RunRequest.resource_limits` — a new wire field on the worker→runner RPC
@@ -122,23 +127,43 @@ resourcePool: {
   cpuMillicores: 40000,                            // 40 cores
   memoryBytes: 450 * 1024 * 1024 * 1024,           // 450 GiB
   gpuUuids: ['GPU-31bb0c86-...', 'GPU-a22ff38a-...'],
+
+  // Optional per-action defaults. Applied when an incoming action
+  // does not set the corresponding REv2 property. With these set,
+  // every action lands in a cgroup -- no surprise unmetered jobs from
+  // clients that forgot to declare resources. 0 leaves that dimension
+  // unmetered for actions that don't ask.
+  defaultCpuMillicores: 1000,                      // 1 core
+  defaultMemoryBytes: 2 * 1024 * 1024 * 1024,      // 2 GiB
 },
 ```
 
 If you don't set `resourcePool`, the worker behaves like upstream — no
-admission control, no resource gating.
+admission control, no resource gating. If you set the pool but leave
+the `default*` fields unset (or 0), actions that omit `cpu` / `memory`
+in `exec_properties` skip cgroup placement entirely, just as if the
+pool weren't there.
 
-#### 3. `localBuildExecutor` — extracts the hints, gates on the pool
+#### 3. `localBuildExecutor` — extracts the hints, applies defaults, gates on the pool
 **Files:** `pkg/builder/local_build_executor.go`, `cmd/bb_worker/main.go`
 
 `Execute()` parses `Action.Platform.Properties` (and
 `Command.Platform.Properties` for newer REv2) looking for `cpu`,
 `memory`, `gpu`. It supports K8s-style memory suffixes (`Ki`, `Mi`,
-`Gi`, `K`, `M`, `G`). It then `pool.Acquire`s before invoking
-`runner.Run` and `pool.Release`s in a `defer` — so the slot is held
-for the entire active phase of the action and returned cleanly on
-success, failure, or crash. The assigned GPU UUIDs are injected into
-the action's environment as `NVIDIA_VISIBLE_DEVICES`.
+`Gi`, `K`, `M`, `G`).
+
+When the `cpu` or `memory` key is **absent**, the corresponding
+`Pool.DefaultCPUMillicores()` / `Pool.DefaultMemoryBytes()` is
+substituted, so an action that asked for nothing still gets a
+predictable cgroup (e.g. 1 core / 2 GiB in the example above). An
+explicit value in `exec_properties` always wins. GPUs have no
+default — actions that don't ask for one get none.
+
+The executor then `pool.Acquire`s before invoking `runner.Run` and
+`pool.Release`s in a `defer` — so the slot is held for the entire
+active phase of the action and returned cleanly on success, failure,
+or crash. The assigned GPU UUIDs are injected into the action's
+environment as `NVIDIA_VISIBLE_DEVICES`.
 
 #### 4. cgroup v2 placement in the runner
 **Files:** `pkg/runner/local_runner.go`, `pkg/runner/local_runner_cgroup_linux.go`, `pkg/runner/local_runner_cgroup_other.go`, `pkg/proto/configuration/bb_runner/bb_runner.proto`, `cmd/bb_runner/cgroup_linux.go`, `cmd/bb_runner/cgroup_other.go`
@@ -224,7 +249,10 @@ To use the new features in a Kubernetes deployment:
    evacuates its own PIDs to a sibling cgroup as needed.
 4. **Set `resourcePool` in the worker config** with totals
    appropriate for the node (typically the pod's allocatable minus
-   system overhead).
+   system overhead). Optionally set `defaultCpuMillicores` /
+   `defaultMemoryBytes` so actions without `cpu` / `memory` in
+   `exec_properties` still land in a bounded cgroup instead of running
+   unmetered.
 5. **Switch the scheduler's `platformKeyExtractor` to `filteringAction`**
    with `ignoredPropertyNames: ['cpu', 'memory', 'gpu', 'gpu_uuids']`.
 6. **Tune `concurrency`.** The worker's concurrency value now caps the

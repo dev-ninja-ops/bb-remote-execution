@@ -143,7 +143,13 @@ func parseMemoryBytes(s string) (uint64, error) {
 // (cpu, memory, gpu) from action and command Platforms and returns the
 // parsed amounts. Command.Platform takes precedence over Action.Platform
 // for the same key (newer REv2 versions put Platform on Command).
-func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Platform) (cpuMillicores uint32, memBytes uint64, gpuCount int, err error) {
+//
+// When an action omits the cpu or memory key, the corresponding
+// default is substituted so every action runs under a cgroup with
+// sensible limits. A default of 0 disables that fallback (the
+// dimension stays unmetered for actions that don't specify it). GPUs
+// have no default — actions that don't ask for one get none.
+func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Platform, defaultCPU uint32, defaultMem uint64) (cpuMillicores uint32, memBytes uint64, gpuCount int, err error) {
 	props := map[string]string{}
 	for _, src := range []*remoteexecution.Platform{actionPlatform, commandPlatform} {
 		if src == nil {
@@ -160,6 +166,8 @@ func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Pla
 			return
 		}
 		cpuMillicores = uint32(n)
+	} else {
+		cpuMillicores = defaultCPU
 	}
 	if v, ok := props["memory"]; ok {
 		n, perr := parseMemoryBytes(v)
@@ -168,6 +176,8 @@ func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Pla
 			return
 		}
 		memBytes = n
+	} else {
+		memBytes = defaultMem
 	}
 	if v, ok := props["gpu"]; ok {
 		n, perr := strconv.ParseUint(strings.TrimSpace(v), 10, 16)
@@ -367,7 +377,11 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool pool.FilePoo
 	// against the worker's local pool. Pool is nil => unmetered.
 	var resourceLimits map[string]string
 	if be.resourcePool != nil {
-		cpuMC, memB, gpuN, perr := extractResourceRequest(action.Platform, command.Platform)
+		cpuMC, memB, gpuN, perr := extractResourceRequest(
+			action.Platform, command.Platform,
+			be.resourcePool.DefaultCPUMillicores(),
+			be.resourcePool.DefaultMemoryBytes(),
+		)
 		if perr != nil {
 			attachErrorToExecuteResponse(response, perr)
 			return response
