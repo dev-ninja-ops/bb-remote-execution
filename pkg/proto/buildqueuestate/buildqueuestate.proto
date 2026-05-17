@@ -8,6 +8,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/rpc/status.proto";
+import "github.com/buildbarn/bb-remote-execution/pkg/proto/resourceusage/resourceusage.proto";
 
 option go_package = "github.com/buildbarn/bb-remote-execution/pkg/proto/buildqueuestate";
 
@@ -191,6 +192,20 @@ message OperationState {
 
   // The digest function that was used to compute the action digest.
   build.bazel.remote.execution.v2.DigestFunction.Value digest_function = 15;
+
+  // Cgroup resource hints the client set in Action.Platform.Properties
+  // (cpu/memory/gpu/gpu_uuids). The scheduler's FilteringActionKeyExtractor
+  // strips these from the routing key so they don't shard queues, but
+  // they remain visible here so the /workers UI can show what each
+  // running action asked for. Empty when no hints were set; in that
+  // case the worker applied its configured defaults.
+  map<string, string> action_resource_limits = 16;
+
+  // Last live snapshot of the action's cgroup pushed up by the worker,
+  // updated every few seconds while the operation is in EXECUTING.
+  // Only populated when the worker has cgroup placement enabled for
+  // this action.
+  buildbarn.resourceusage.CGroupResourceUsage live_cgroup_stats = 17;
 }
 
 message SizeClassQueueState {

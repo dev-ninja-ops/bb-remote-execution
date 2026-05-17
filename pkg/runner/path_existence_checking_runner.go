@@ -56,3 +56,7 @@ func (r *pathExistenceCheckingRunner) Run(ctx context.Context, request *runner_p
 	}
 	return response, nil
 }
+
+func (r *pathExistenceCheckingRunner) GetLiveCgroupStats(ctx context.Context, request *runner_pb.GetLiveCgroupStatsRequest) (*runner_pb.GetLiveCgroupStatsResponse, error) {
+	return r.base.GetLiveCgroupStats(ctx, request)
+}

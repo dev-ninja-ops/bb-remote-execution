@@ -50,3 +50,7 @@ func (r *cleanRunner) CheckReadiness(ctx context.Context, request *runner_pb.Che
 	}
 	return response, err2
 }
+
+func (r *cleanRunner) GetLiveCgroupStats(ctx context.Context, request *runner_pb.GetLiveCgroupStatsRequest) (*runner_pb.GetLiveCgroupStatsResponse, error) {
+	return r.base.GetLiveCgroupStats(ctx, request)
+}

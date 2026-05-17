@@ -45,3 +45,7 @@ func (r *temporaryDirectoryInstallingRunner) CheckReadiness(ctx context.Context,
 	}
 	return r.base.CheckReadiness(ctx, request)
 }
+
+func (r *temporaryDirectoryInstallingRunner) GetLiveCgroupStats(ctx context.Context, request *runner_pb.GetLiveCgroupStatsRequest) (*runner_pb.GetLiveCgroupStatsResponse, error) {
+	return r.base.GetLiveCgroupStats(ctx, request)
+}

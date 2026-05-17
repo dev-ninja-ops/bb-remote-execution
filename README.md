@@ -261,6 +261,60 @@ To use the new features in a Kubernetes deployment:
    `ceil(cpu_pool_millicores / smallest_typical_request)` so big asks
    don't starve small ones out of available slots.
 
+### Visibility: scheduler UI + bb-browser report
+
+Limits and live usage are surfaced in two places so operators can
+actually see what the cgroup is doing without `kubectl exec`-ing into
+the runner pod.
+
+#### bb-scheduler `/workers` page
+
+Each row under the **Executing** filter now has two extra columns:
+
+- **CGroup limits** — badges built from the action's
+  `Action.Platform.Properties` (cpu / memory / gpu / gpu_uuids). The
+  scheduler's `FilteringActionKeyExtractor` strips these from the
+  routing key but they're still attached to the action and shown
+  here.
+- **Live usage** — live `memory.current` vs the cgroup's
+  `memory.max`, accumulated `cpu.usage_usec`, throttle counters, and
+  any `oom_kill_count > 0`. Refreshes every ~5 seconds.
+
+Data flow: `bb_worker` (per active action) polls the runner's new
+`Runner.GetLiveCgroupStats(run_id)` RPC every 5s, wraps the snapshot
+into a `CurrentState_Executing.LiveCgroupStats` field, and pushes it
+on the existing `executionStateUpdates` channel. That send forces
+`build_client.go` to fire `Synchronize` immediately, so the scheduler
+sees a fresh sample without any cadence-tuning knobs.
+
+The per-operation page (`/operation?name=...`) renders the same data
+in two rows ("CGroup limits", "Live cgroup stats") with finer detail:
+`memory.peak`, the `cpu.user_usec`/`cpu.system_usec` split, period
+counts, and the assigned GPU UUIDs.
+
+#### bb-browser action page
+
+When an action completes, `bb_runner` reads the final cgroup state
+(peak memory, all `cpu.stat` counters, `oom_kill_count`) and attaches
+a `buildbarn.resourceusage.CGroupResourceUsage` as a
+`google.protobuf.Any` in `RunResponse.resource_usage`. That flows
+into `ExecutedActionMetadata.AuxiliaryMetadata` and is rendered by
+`bb_browser` in a new "CGroup resource usage" section on the action
+page, right alongside the existing POSIX section. Fields shown:
+
+- **Applied limits** (echoed `cpu.max` and `memory.max`).
+- **CPU time** broken into user / system / total seconds.
+- **CPU throttling** — number of 100 ms periods, how many were
+  throttled, and the total wall-clock time spent off-CPU.
+- **Peak memory** (`memory.peak`).
+- **Memory at exit** (`memory.current`).
+- **OOM kills** — highlighted in red when non-zero, identifying
+  actions the kernel killed for exceeding `memory.max`.
+- Assigned GPU UUIDs when the action requested any.
+
+This makes `oom_kill_count` and CPU throttling permanently auditable
+per action without any tracing infrastructure.
+
 ### Known limitations / out of scope
 
 - **Pool fairness:** `Acquire` uses `cond.Broadcast`, so order between

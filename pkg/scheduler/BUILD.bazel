@@ -9,6 +9,7 @@ go_library(
         "//pkg/builder",
         "//pkg/proto/buildqueuestate",
         "//pkg/proto/remoteworker",
+        "//pkg/proto/resourceusage",
         "//pkg/scheduler/initialsizeclass",
         "//pkg/scheduler/invocation",
         "//pkg/scheduler/platform",

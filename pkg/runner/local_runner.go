@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/runner"
@@ -72,6 +73,12 @@ type localRunner struct {
 	commandCreator               CommandCreator
 	setTmpdirEnvironmentVariable bool
 	cgroupParentPath             string
+
+	// activeRuns maps RunRequest.RunId -> *cgroupHandle for actions
+	// currently in flight that have cgroup placement. Used by
+	// GetLiveCgroupStats to look up the cgroup by id. Entries are
+	// removed in the Run() defer after the action completes.
+	activeRuns sync.Map
 }
 
 func (r *localRunner) openLog(logPath string) (filesystem.FileAppender, error) {
@@ -190,14 +197,19 @@ func (r *localRunner) Run(ctx context.Context, request *runner.RunRequest) (*run
 	// If a cgroup parent is configured and the request includes
 	// resource limits, create a per-action sub-cgroup and place the
 	// child process into it via clone3(CLONE_INTO_CGROUP). On
-	// non-Linux platforms or when limits are absent, this is a no-op.
-	cgroupCleanup, err := r.setupCgroup(cmd, request.ResourceLimits)
+	// non-Linux platforms or when limits are absent, this is a no-op
+	// (cg is nil).
+	cg, err := r.setupCgroup(cmd, request.ResourceLimits, request.RunId)
 	if err != nil {
 		stdout.Close()
 		stderr.Close()
 		return nil, util.StatusWrap(err, "Failed to set up cgroup")
 	}
-	defer cgroupCleanup()
+	if cg != nil && request.RunId != "" {
+		r.activeRuns.Store(request.RunId, cg)
+		defer r.activeRuns.Delete(request.RunId)
+	}
+	defer cg.Close()
 
 	// Start the subprocess. We can already close the output files
 	// while the process is running.
@@ -227,9 +239,21 @@ func (r *localRunner) Run(ctx context.Context, request *runner.RunRequest) (*run
 	if err != nil {
 		return nil, util.StatusWrap(err, "Failed to marshal POSIX resource usage")
 	}
+	resourceUsage := []*anypb.Any{posixResourceUsage}
+
+	// Attach a final cgroup snapshot (peak memory, throttle counts,
+	// oom_kill_count, ...) before the cgroup is torn down by Close().
+	if cg != nil {
+		if stats, statsErr := cg.Stats(); statsErr == nil && stats != nil {
+			if cgroupAny, err := anypb.New(stats); err == nil {
+				resourceUsage = append(resourceUsage, cgroupAny)
+			}
+		}
+	}
+
 	return &runner.RunResponse{
 		ExitCode:      int64(cmd.ProcessState.ExitCode()),
-		ResourceUsage: []*anypb.Any{posixResourceUsage},
+		ResourceUsage: resourceUsage,
 	}, nil
 }
 
@@ -252,6 +276,26 @@ func (r *localRunner) CheckReadiness(ctx context.Context, request *runner.CheckR
 	}
 
 	return &emptypb.Empty{}, nil
+}
+
+// GetLiveCgroupStats returns a snapshot of the per-action cgroup that
+// Run() created for the given run_id, while that action is still in
+// flight. Returns NotFound once the action completes (the cgroup is
+// torn down in Run()'s defer).
+func (r *localRunner) GetLiveCgroupStats(ctx context.Context, request *runner.GetLiveCgroupStatsRequest) (*runner.GetLiveCgroupStatsResponse, error) {
+	if request.RunId == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	v, ok := r.activeRuns.Load(request.RunId)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no active run with id %q (cgroup placement may be disabled or the run already finished)", request.RunId)
+	}
+	cg, _ := v.(*cgroupHandle)
+	stats, err := cg.Stats()
+	if err != nil {
+		return nil, util.StatusWrapfWithCode(err, codes.Internal, "Failed to read cgroup stats for run %q", request.RunId)
+	}
+	return &runner.GetLiveCgroupStatsResponse{Cgroup: stats}, nil
 }
 
 // getExecutablePath returns the path of an executable within a given

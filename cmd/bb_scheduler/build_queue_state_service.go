@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -130,6 +131,29 @@ var (
 		},
 		"to_foreground_color": func(s string) string {
 			return "#" + invertColor(s[:2]) + invertColor(s[2:4]) + invertColor(s[4:6])
+		},
+		"format_bytes": func(n uint64) string {
+			const (
+				kib = 1024
+				mib = kib * 1024
+				gib = mib * 1024
+				tib = gib * 1024
+			)
+			switch {
+			case n >= tib:
+				return fmt.Sprintf("%.2f TiB", float64(n)/float64(tib))
+			case n >= gib:
+				return fmt.Sprintf("%.2f GiB", float64(n)/float64(gib))
+			case n >= mib:
+				return fmt.Sprintf("%.1f MiB", float64(n)/float64(mib))
+			case n >= kib:
+				return fmt.Sprintf("%.1f KiB", float64(n)/float64(kib))
+			default:
+				return fmt.Sprintf("%d B", n)
+			}
+		},
+		"cgroup_cpu_seconds": func(usec uint64) string {
+			return fmt.Sprintf("%.2f", float64(usec)/1e6)
 		},
 	}).ParseFS(templatesFS, "templates/*.html"))
 )

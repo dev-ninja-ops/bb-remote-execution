@@ -86,3 +86,7 @@ func (r *temporaryDirectorySymlinkingRunner) CheckReadiness(ctx context.Context,
 
 	return r.base.CheckReadiness(ctx, request)
 }
+
+func (r *temporaryDirectorySymlinkingRunner) GetLiveCgroupStats(ctx context.Context, request *runner_pb.GetLiveCgroupStatsRequest) (*runner_pb.GetLiveCgroupStatsResponse, error) {
+	return r.base.GetLiveCgroupStats(ctx, request)
+}

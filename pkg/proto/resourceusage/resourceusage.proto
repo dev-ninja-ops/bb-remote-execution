@@ -126,3 +126,46 @@ message InputRootResourceUsage {
   // Addressable Storage (CAS).
   uint64 files_read = 3;
 }
+
+// Cgroup v2 resource usage and limits for a single action. Emitted by
+// bb_runner when it placed the action in a per-action sub-cgroup.
+//
+// The same message is used in two places:
+//   * As an Any in RunResponse.resource_usage, capturing the *final*
+//     state of the cgroup right before it is torn down. Flows into
+//     ExecutedActionMetadata.AuxiliaryMetadata and is rendered by
+//     bb_browser on the action page.
+//   * As live_cgroup_stats on remoteworker.CurrentState.Executing,
+//     populated from a periodic GetLiveCgroupStats poll the worker
+//     makes against the runner. Flows up to bb_scheduler so the
+//     /workers UI can show in-flight numbers.
+message CGroupResourceUsage {
+  // Limits we applied. Mirrors the values written to cpu.max /
+  // memory.max. Keeping them in the same message means the usage
+  // numbers are self-describing.
+  string requested_cpu_max = 1;     // e.g. "200000 100000"
+  uint64 requested_memory_max = 2;  // bytes
+  repeated string gpu_uuids = 3;    // assigned NVIDIA UUIDs
+
+  // memory.peak: high-water mark of the cgroup since creation. Only
+  // meaningful in the post-completion attachment; ignored when sampled
+  // live (the kernel reports it, but it can still grow).
+  uint64 peak_memory_bytes = 10;
+
+  // memory.current: snapshot of current charge at sampling time.
+  uint64 current_memory_bytes = 11;
+
+  // cpu.stat counters. usage = user + system. throttled_usec is the
+  // total wall-clock time the cgroup spent off-CPU due to cpu.max.
+  uint64 cpu_usage_usec = 12;
+  uint64 cpu_user_usec = 13;
+  uint64 cpu_system_usec = 14;
+  uint64 nr_periods = 20;
+  uint64 nr_throttled = 21;
+  uint64 throttled_usec = 22;
+
+  // memory.events oom_kill: number of processes the cgroup OOM killer
+  // has terminated. Non-zero means at least one descendant was killed
+  // for exceeding memory.max.
+  uint64 oom_kill_count = 30;
+}

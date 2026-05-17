@@ -16,6 +16,7 @@ import (
 	re_builder "github.com/buildbarn/bb-remote-execution/pkg/builder"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/buildqueuestate"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteworker"
+	"github.com/buildbarn/bb-remote-execution/pkg/proto/resourceusage"
 	"github.com/buildbarn/bb-remote-execution/pkg/scheduler/initialsizeclass"
 	scheduler_invocation "github.com/buildbarn/bb-remote-execution/pkg/scheduler/invocation"
 	"github.com/buildbarn/bb-remote-execution/pkg/scheduler/platform"
@@ -705,7 +706,7 @@ func (bq *InMemoryBuildQueue) Synchronize(ctx context.Context, request *remotewo
 		case *remoteworker.CurrentState_Executing_Completed:
 			return w.completeTask(ctx, bq, scq, request.WorkerId, executing.ActionDigest, executionState.Completed, request.PreferBeingIdle)
 		default:
-			return w.updateTask(bq, scq, request.WorkerId, executing.ActionDigest, request.PreferBeingIdle)
+			return w.updateTask(bq, scq, request.WorkerId, executing.ActionDigest, executing.LiveCgroupStats, request.PreferBeingIdle)
 		}
 	default:
 		return nil, status.Error(codes.InvalidArgument, "Worker provided an unknown current state")
@@ -2298,14 +2299,16 @@ func (o *operation) getOperationState(bq *InMemoryBuildQueue) *buildqueuestate.O
 			SizeClassQueueName: sizeClassKey.getSizeClassQueueName(),
 			Ids:                invocationIDs,
 		},
-		ExpectedDuration:   durationpb.New(t.expectedDuration),
-		QueuedTimestamp:    t.desiredState.QueuedTimestamp,
-		ActionDigest:       t.desiredState.ActionDigest,
-		TargetId:           t.targetID,
-		Timeout:            bq.cleanupQueue.getTimestamp(o.cleanupKey),
-		Priority:           o.priority,
-		InstanceNameSuffix: t.desiredState.InstanceNameSuffix,
-		DigestFunction:     t.desiredState.DigestFunction,
+		ExpectedDuration:     durationpb.New(t.expectedDuration),
+		QueuedTimestamp:      t.desiredState.QueuedTimestamp,
+		ActionDigest:         t.desiredState.ActionDigest,
+		TargetId:             t.targetID,
+		Timeout:              bq.cleanupQueue.getTimestamp(o.cleanupKey),
+		Priority:             o.priority,
+		InstanceNameSuffix:   t.desiredState.InstanceNameSuffix,
+		DigestFunction:       t.desiredState.DigestFunction,
+		ActionResourceLimits: extractActionResourceLimits(t.desiredState.Action),
+		LiveCgroupStats:      t.liveCgroupStats,
 	}
 	switch t.getStage() {
 	case remoteexecution.ExecutionStage_QUEUED:
@@ -2322,6 +2325,30 @@ func (o *operation) getOperationState(bq *InMemoryBuildQueue) *buildqueuestate.O
 		}
 	}
 	return s
+}
+
+// extractActionResourceLimits returns the subset of the action's
+// Platform.Properties that this fork interprets as cgroup hints (cpu,
+// memory, gpu, gpu_uuids). FilteringActionKeyExtractor strips these
+// from the scheduler's routing key, so they don't appear anywhere in
+// OperationState by default; this helper makes them visible again on
+// the UI so operators can see what each running action asked for.
+// Returns nil when the action carries none of these keys.
+func extractActionResourceLimits(action *remoteexecution.Action) map[string]string {
+	if action == nil || action.Platform == nil {
+		return nil
+	}
+	var out map[string]string
+	for _, p := range action.Platform.Properties {
+		switch p.Name {
+		case "cpu", "memory", "gpu", "gpu_uuids":
+			if out == nil {
+				out = make(map[string]string, 4)
+			}
+			out[p.Name] = p.Value
+		}
+	}
+	return out
 }
 
 func (o *operation) maybeStartCleanup(bq *InMemoryBuildQueue) {
@@ -2365,6 +2392,12 @@ type task struct {
 
 	executeResponse   *remoteexecution.ExecuteResponse
 	stageChangeWakeup chan struct{}
+
+	// liveCgroupStats is the most recent per-action cgroup snapshot
+	// pushed up by the worker via CurrentState_Executing.LiveCgroupStats.
+	// Nil until the worker has reported one. Cleared back to nil on
+	// stage transitions out of EXECUTING.
+	liveCgroupStats *resourceusage.CGroupResourceUsage
 }
 
 // newOperation attaches a new operation to a task. This function must
@@ -3082,9 +3115,16 @@ func (w *worker) isRunningCorrectTask(actionDigest *remoteexecution.Digest) bool
 
 // updateTask processes execution status updates from the worker that do
 // not equal the 'completed' state.
-func (w *worker) updateTask(bq *InMemoryBuildQueue, scq *sizeClassQueue, workerID map[string]string, actionDigest *remoteexecution.Digest, preferBeingIdle bool) (*remoteworker.SynchronizeResponse, error) {
+func (w *worker) updateTask(bq *InMemoryBuildQueue, scq *sizeClassQueue, workerID map[string]string, actionDigest *remoteexecution.Digest, liveCgroupStats *resourceusage.CGroupResourceUsage, preferBeingIdle bool) (*remoteworker.SynchronizeResponse, error) {
 	if !w.isRunningCorrectTask(actionDigest) {
 		return w.getCurrentOrNextTask(nil, bq, scq, workerID, preferBeingIdle)
+	}
+	// Stash the worker's latest cgroup snapshot on the task so the
+	// /workers UI can render it. Nil is a normal "no sample yet" or
+	// "cgroup placement disabled" signal — overwrite either way so
+	// transient stat-collection failures don't leave stale numbers.
+	if t := w.currentTask; t != nil {
+		t.liveCgroupStats = liveCgroupStats
 	}
 	// The worker is doing fine. Allow it to continue with what it's
 	// doing right now.

@@ -111,6 +111,28 @@
 			{{end}}
 		</td>
 	</tr>
+	{{with .Operation.ActionResourceLimits}}
+		<tr>
+			<th style="width: 25%">CGroup limits:</th>
+			<td style="width: 75%">
+				{{range $k, $v := .}}
+					<span class="badge bg-secondary">{{$k}}={{$v}}</span>
+				{{end}}
+			</td>
+		</tr>
+	{{end}}
+	{{with .Operation.LiveCgroupStats}}
+		<tr>
+			<th style="width: 25%">Live cgroup stats:</th>
+			<td style="width: 75%">
+				<div>memory.current: <strong>{{.CurrentMemoryBytes | format_bytes}}</strong>{{if .RequestedMemoryMax}} / {{.RequestedMemoryMax | format_bytes}}{{end}}{{if .PeakMemoryBytes}} (peak {{.PeakMemoryBytes | format_bytes}}){{end}}</div>
+				<div>cpu.usage: <strong>{{cgroup_cpu_seconds .CpuUsageUsec}}s</strong> (user {{cgroup_cpu_seconds .CpuUserUsec}}s, system {{cgroup_cpu_seconds .CpuSystemUsec}}s){{with .RequestedCpuMax}} cap {{.}}{{end}}</div>
+				<div>cpu.stat: nr_periods={{.NrPeriods}}, nr_throttled=<strong>{{.NrThrottled}}</strong>, throttled={{cgroup_cpu_seconds .ThrottledUsec}}s</div>
+				{{if .OomKillCount}}<div class="text-danger">memory.events oom_kill: <strong>{{.OomKillCount}}</strong></div>{{end}}
+				{{if .GpuUuids}}<div>GPU UUIDs: {{range .GpuUuids}}<code>{{.}}</code> {{end}}</div>{{end}}
+			</td>
+		</tr>
+	{{end}}
 </table>
 
 {{with operation_stage_completed .Operation}}

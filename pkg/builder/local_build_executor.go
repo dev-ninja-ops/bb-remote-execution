@@ -21,12 +21,19 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/util"
+	"github.com/google/uuid"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+// liveCgroupPollInterval is how often the build executor asks the
+// runner for a fresh cgroup snapshot while an action is in flight. The
+// snapshot is then pushed up to the scheduler via the existing
+// executionStateUpdates channel.
+const liveCgroupPollInterval = 5 * time.Second
 
 // Filenames of objects to be created inside the build directory.
 var (
@@ -188,6 +195,58 @@ func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Pla
 		gpuCount = int(n)
 	}
 	return
+}
+
+// pollLiveCgroupStats polls bb_runner.GetLiveCgroupStats every
+// liveCgroupPollInterval while runner.Run() is in flight, and pushes
+// each fresh snapshot up to bb_scheduler by sending a
+// CurrentState_Executing update on executionStateUpdates. The channel
+// send into bc.executionUpdates (see build_client.go:206) flips the
+// worker's nextSynchronizationAt to "now", so the scheduler sees a
+// new sample within the next round trip.
+//
+// The goroutine exits when stop is closed (the executor closes it
+// right after runner.Run() returns). NotFound responses are silently
+// dropped — they happen during the race between the action finishing
+// and stop being closed.
+func (be *localBuildExecutor) pollLiveCgroupStats(
+	ctx context.Context,
+	actionDigest *remoteexecution.Digest,
+	runID string,
+	executionStateUpdates chan<- *remoteworker.CurrentState_Executing,
+	stop <-chan struct{},
+) {
+	ticker := time.NewTicker(liveCgroupPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		resp, err := be.runner.GetLiveCgroupStats(ctx, &runner_pb.GetLiveCgroupStatsRequest{RunId: runID})
+		if err != nil {
+			// NotFound is expected once the action winds down;
+			// any other error is transient — try again next tick.
+			continue
+		}
+		update := &remoteworker.CurrentState_Executing{
+			ActionDigest: actionDigest,
+			ExecutionState: &remoteworker.CurrentState_Executing_Running{
+				Running: &emptypb.Empty{},
+			},
+			LiveCgroupStats: resp.Cgroup,
+		}
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case executionStateUpdates <- update:
+		}
+	}
 }
 
 func (be *localBuildExecutor) createCharacterDevices(inputRootDirectory BuildDirectory) error {
@@ -406,6 +465,21 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool pool.FilePoo
 		}
 	}
 
+	// Generate a stable run id so we (the worker) can poll the runner
+	// for live cgroup stats while the action is in flight. Persists
+	// only for the duration of this Execute().
+	runID := uuid.Must(uuid.NewRandom()).String()
+
+	// Spawn a periodic poll goroutine that asks the runner for live
+	// cgroup stats and pushes them up to the scheduler via the
+	// existing executionStateUpdates channel. Sending on that channel
+	// makes build_client.Run() flip nextSynchronizationAt to "now",
+	// so each poll triggers an immediate Synchronize() to bb_scheduler.
+	pollDone := make(chan struct{})
+	if len(resourceLimits) > 0 {
+		go be.pollLiveCgroupStats(ctxWithIOError, request.ActionDigest, runID, executionStateUpdates, pollDone)
+	}
+
 	// Invoke the command.
 	ctxWithTimeout, cancelTimeout := be.clock.NewContextWithTimeout(ctxWithIOError, executionTimeout)
 	runResponse, runErr := be.runner.Run(ctxWithTimeout, &runner_pb.RunRequest{
@@ -418,7 +492,9 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool pool.FilePoo
 		TemporaryDirectory:   buildDirectoryPath.Append(temporaryDirectoryComponent).GetUNIXString(),
 		ServerLogsDirectory:  buildDirectoryPath.Append(serverLogsDirectoryComponent).GetUNIXString(),
 		ResourceLimits:       resourceLimits,
+		RunId:                runID,
 	})
+	close(pollDone)
 	cancelTimeout()
 	<-ctxWithTimeout.Done()
 
