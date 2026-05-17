@@ -3,6 +3,7 @@ load("@aspect_rules_js//js:defs.bzl", "js_run_binary")
 load("@com_github_buildbarn_bb_remote_execution_npm//:purgecss/package_json.bzl", purgecss_bin = "bin")
 load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official", "multiarch_go_image")
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_img//img:load.bzl", "image_load")
 
 go_library(
     name = "bb_scheduler_lib",
@@ -125,4 +126,11 @@ container_push_official(
     name = "bb_scheduler_container_push",
     component = "bb-scheduler",
     image = ":bb_scheduler_container",
+)
+
+image_load(
+    name = "bb_scheduler_container_load",
+    image = ":_bb_scheduler_container.image",
+    tag = "bb-scheduler:cgroup-dev",
+    tags = ["manual"],
 )

@@ -44,6 +44,7 @@ go_library(
         "//pkg/proto/remoteworker",
         "//pkg/proto/resourceusage",
         "//pkg/proto/runner",
+        "//pkg/resourcepool",
         "//pkg/util",
         "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_buildbarn_bb_storage//pkg/blobstore",

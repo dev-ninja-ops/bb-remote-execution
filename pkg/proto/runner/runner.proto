@@ -58,6 +58,11 @@ message RunRequest {
   // Path where files may be stored that are attached to the REv2
   // ExecuteResponse in the form of server logs.
   string server_logs_directory = 8;
+
+  // Resource limits to enforce via cgroup before exec. Recognized keys:
+  // "cpu" (millicores), "memory" (bytes), "gpu_uuids" (comma-separated UUIDs).
+  // Empty => no cgroup created.
+  map<string, string> resource_limits = 9;
 }
 
 message RunResponse {

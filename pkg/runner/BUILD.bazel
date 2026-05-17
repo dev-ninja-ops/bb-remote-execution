@@ -6,6 +6,8 @@ go_library(
         "apple_xcode_resolving_runner.go",
         "clean_runner.go",
         "local_runner.go",
+        "local_runner_cgroup_linux.go",
+        "local_runner_cgroup_other.go",
         "local_runner_darwin.go",
         "local_runner_rss_bytes.go",
         "local_runner_rss_kibibytes.go",
@@ -52,6 +54,8 @@ go_library(
         ],
         "@rules_go//go/platform:linux": [
             "//pkg/proto/resourceusage",
+            "@com_github_containerd_cgroups_v3//cgroup2",
+            "@com_github_google_uuid//:uuid",
             "@org_golang_google_protobuf//types/known/durationpb",
             "@org_golang_x_sys//unix",
         ],

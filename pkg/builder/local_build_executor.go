@@ -3,6 +3,8 @@ package builder
 import (
 	"context"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/buildbarn/bb-remote-execution/pkg/filesystem/pool"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteworker"
 	runner_pb "github.com/buildbarn/bb-remote-execution/pkg/proto/runner"
+	"github.com/buildbarn/bb-remote-execution/pkg/resourcepool"
 	"github.com/buildbarn/bb-storage/pkg/blobstore"
 	"github.com/buildbarn/bb-storage/pkg/clock"
 	"github.com/buildbarn/bb-storage/pkg/digest"
@@ -74,11 +77,13 @@ type localBuildExecutor struct {
 	maximumMessageSizeBytes        int
 	environmentVariables           map[string]string
 	forceUploadTreesAndDirectories bool
+	resourcePool                   *resourcepool.Pool
 }
 
 // NewLocalBuildExecutor returns a BuildExecutor that executes build
-// steps on the local system.
-func NewLocalBuildExecutor(contentAddressableStorage blobstore.BlobAccess, buildDirectoryCreator BuildDirectoryCreator, runner runner_pb.RunnerClient, clock clock.Clock, maximumWritableFileUploadDelay time.Duration, inputRootCharacterDevices map[path.Component]filesystem.DeviceNumber, maximumMessageSizeBytes int, environmentVariables map[string]string, forceUploadTreesAndDirectories bool) BuildExecutor {
+// steps on the local system. resourcePool may be nil, in which case no
+// per-action resource gating is performed.
+func NewLocalBuildExecutor(contentAddressableStorage blobstore.BlobAccess, buildDirectoryCreator BuildDirectoryCreator, runner runner_pb.RunnerClient, clock clock.Clock, maximumWritableFileUploadDelay time.Duration, inputRootCharacterDevices map[path.Component]filesystem.DeviceNumber, maximumMessageSizeBytes int, environmentVariables map[string]string, forceUploadTreesAndDirectories bool, resourcePool *resourcepool.Pool) BuildExecutor {
 	return &localBuildExecutor{
 		contentAddressableStorage:      contentAddressableStorage,
 		buildDirectoryCreator:          buildDirectoryCreator,
@@ -89,7 +94,90 @@ func NewLocalBuildExecutor(contentAddressableStorage blobstore.BlobAccess, build
 		maximumMessageSizeBytes:        maximumMessageSizeBytes,
 		environmentVariables:           environmentVariables,
 		forceUploadTreesAndDirectories: forceUploadTreesAndDirectories,
+		resourcePool:                   resourcePool,
 	}
+}
+
+// parseMemoryBytes accepts a plain integer or a value with K8s-style
+// suffixes (Ki/Mi/Gi/Ti or K/M/G/T) and returns bytes.
+func parseMemoryBytes(s string) (uint64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	multiplier := uint64(1)
+	switch {
+	case strings.HasSuffix(s, "Ki"):
+		multiplier = 1 << 10
+		s = strings.TrimSuffix(s, "Ki")
+	case strings.HasSuffix(s, "Mi"):
+		multiplier = 1 << 20
+		s = strings.TrimSuffix(s, "Mi")
+	case strings.HasSuffix(s, "Gi"):
+		multiplier = 1 << 30
+		s = strings.TrimSuffix(s, "Gi")
+	case strings.HasSuffix(s, "Ti"):
+		multiplier = 1 << 40
+		s = strings.TrimSuffix(s, "Ti")
+	case strings.HasSuffix(s, "K"):
+		multiplier = 1000
+		s = strings.TrimSuffix(s, "K")
+	case strings.HasSuffix(s, "M"):
+		multiplier = 1000 * 1000
+		s = strings.TrimSuffix(s, "M")
+	case strings.HasSuffix(s, "G"):
+		multiplier = 1000 * 1000 * 1000
+		s = strings.TrimSuffix(s, "G")
+	case strings.HasSuffix(s, "T"):
+		multiplier = 1000 * 1000 * 1000 * 1000
+		s = strings.TrimSuffix(s, "T")
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return n * multiplier, nil
+}
+
+// extractResourceRequest reads recognized REv2 Platform property keys
+// (cpu, memory, gpu) from action and command Platforms and returns the
+// parsed amounts. Command.Platform takes precedence over Action.Platform
+// for the same key (newer REv2 versions put Platform on Command).
+func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Platform) (cpuMillicores uint32, memBytes uint64, gpuCount int, err error) {
+	props := map[string]string{}
+	for _, src := range []*remoteexecution.Platform{actionPlatform, commandPlatform} {
+		if src == nil {
+			continue
+		}
+		for _, p := range src.Properties {
+			props[p.Name] = p.Value
+		}
+	}
+	if v, ok := props["cpu"]; ok {
+		n, perr := strconv.ParseUint(strings.TrimSpace(v), 10, 32)
+		if perr != nil {
+			err = status.Errorf(codes.InvalidArgument, "Invalid exec_properties.cpu %q: %v", v, perr)
+			return
+		}
+		cpuMillicores = uint32(n)
+	}
+	if v, ok := props["memory"]; ok {
+		n, perr := parseMemoryBytes(v)
+		if perr != nil {
+			err = status.Errorf(codes.InvalidArgument, "Invalid exec_properties.memory %q: %v", v, perr)
+			return
+		}
+		memBytes = n
+	}
+	if v, ok := props["gpu"]; ok {
+		n, perr := strconv.ParseUint(strings.TrimSpace(v), 10, 16)
+		if perr != nil {
+			err = status.Errorf(codes.InvalidArgument, "Invalid exec_properties.gpu %q: %v", v, perr)
+			return
+		}
+		gpuCount = int(n)
+	}
+	return
 }
 
 func (be *localBuildExecutor) createCharacterDevices(inputRootDirectory BuildDirectory) error {
@@ -275,6 +363,35 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool pool.FilePoo
 		environmentVariables[environmentVariable.Name] = environmentVariable.Value
 	}
 
+	// Parse REv2 Platform properties for resource hints and acquire
+	// against the worker's local pool. Pool is nil => unmetered.
+	var resourceLimits map[string]string
+	if be.resourcePool != nil {
+		cpuMC, memB, gpuN, perr := extractResourceRequest(action.Platform, command.Platform)
+		if perr != nil {
+			attachErrorToExecuteResponse(response, perr)
+			return response
+		}
+		alloc, aerr := be.resourcePool.Acquire(ctxWithIOError, cpuMC, memB, gpuN)
+		if aerr != nil {
+			attachErrorToExecuteResponse(response, util.StatusWrap(aerr, "Failed to acquire resource pool"))
+			return response
+		}
+		defer be.resourcePool.Release(alloc)
+
+		resourceLimits = map[string]string{}
+		if alloc.CPUMillicores > 0 {
+			resourceLimits["cpu"] = strconv.FormatUint(uint64(alloc.CPUMillicores), 10)
+		}
+		if alloc.MemoryBytes > 0 {
+			resourceLimits["memory"] = strconv.FormatUint(alloc.MemoryBytes, 10)
+		}
+		if len(alloc.GPUUUIDs) > 0 {
+			resourceLimits["gpu_uuids"] = strings.Join(alloc.GPUUUIDs, ",")
+			environmentVariables["NVIDIA_VISIBLE_DEVICES"] = strings.Join(alloc.GPUUUIDs, ",")
+		}
+	}
+
 	// Invoke the command.
 	ctxWithTimeout, cancelTimeout := be.clock.NewContextWithTimeout(ctxWithIOError, executionTimeout)
 	runResponse, runErr := be.runner.Run(ctxWithTimeout, &runner_pb.RunRequest{
@@ -286,6 +403,7 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool pool.FilePoo
 		InputRootDirectory:   buildDirectoryPath.Append(inputRootDirectoryComponent).GetUNIXString(),
 		TemporaryDirectory:   buildDirectoryPath.Append(temporaryDirectoryComponent).GetUNIXString(),
 		ServerLogsDirectory:  buildDirectoryPath.Append(serverLogsDirectoryComponent).GetUNIXString(),
+		ResourceLimits:       resourceLimits,
 	})
 	cancelTimeout()
 	<-ctxWithTimeout.Done()

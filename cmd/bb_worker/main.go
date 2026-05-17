@@ -26,6 +26,7 @@ import (
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/configuration/bb_worker"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteworker"
 	runner_pb "github.com/buildbarn/bb-remote-execution/pkg/proto/runner"
+	"github.com/buildbarn/bb-remote-execution/pkg/resourcepool"
 	"github.com/buildbarn/bb-storage/pkg/blobstore"
 	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
 	"github.com/buildbarn/bb-storage/pkg/clock"
@@ -83,6 +84,11 @@ func main() {
 		if err != nil {
 			return util.StatusWrap(err, "Failed to create file pool")
 		}
+
+		// Per-action CPU/memory/GPU admission control. The pool is
+		// shared across all runner threads of this worker process so
+		// that resource accounting is consistent.
+		resourcePool := resourcepool.NewPool(configuration.ResourcePool)
 
 		// Storage access.
 		zstdPool := zstd.NewPoolFromConfiguration(configuration.ZstdPool)
@@ -455,6 +461,7 @@ func main() {
 						int(configuration.MaximumMessageSizeBytes),
 						runnerConfiguration.EnvironmentVariables,
 						configuration.ForceUploadTreesAndDirectories,
+						resourcePool,
 					)
 
 					if prefetchingConfiguration != nil {

@@ -1,5 +1,6 @@
 load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official", "multiarch_go_image")
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_img//img:load.bzl", "image_load")
 
 go_library(
     name = "bb_worker_lib",
@@ -23,6 +24,7 @@ go_library(
         "//pkg/proto/configuration/bb_worker",
         "//pkg/proto/remoteworker",
         "//pkg/proto/runner",
+        "//pkg/resourcepool",
         "@com_github_buildbarn_bb_storage//pkg/blobstore",
         "@com_github_buildbarn_bb_storage//pkg/blobstore/configuration",
         "@com_github_buildbarn_bb_storage//pkg/clock",
@@ -77,4 +79,11 @@ container_push_official(
     name = "bb_worker_container_push",
     component = "bb-worker",
     image = ":bb_worker_container",
+)
+
+image_load(
+    name = "bb_worker_container_load",
+    image = ":_bb_worker_container.image",
+    tag = "bb-worker:cgroup-dev",
+    tags = ["manual"],
 )

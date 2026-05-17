@@ -176,6 +176,26 @@ message ApplicationConfiguration {
   // process-wide pool shared by all gRPC CAS clients and the
   // ByteStream server.
   buildbarn.configuration.zstd.PoolConfiguration zstd_pool = 31;
+
+  // Pool of CPU/memory/GPU resources from which actions draw based on
+  // their REv2 Platform properties ("cpu" millicores, "memory" bytes,
+  // "gpu" count). Acquired before invoking the runner; released after
+  // the runner returns. Empty/zero fields => that dimension is not
+  // gated locally.
+  ResourcePoolConfiguration resource_pool = 32;
+}
+
+message ResourcePoolConfiguration {
+  // Total CPU pool, in millicores. 0 disables CPU gating.
+  uint32 cpu_millicores = 1;
+
+  // Total memory pool, in bytes. 0 disables memory gating.
+  uint64 memory_bytes = 2;
+
+  // GPU UUIDs (as reported by `nvidia-smi -L`) that this worker may
+  // hand out. The list also caps the total number of GPUs gated.
+  // Empty => GPU gating disabled.
+  repeated string gpu_uuids = 3;
 }
 
 message BuildDirectoryConfiguration {

@@ -120,6 +120,14 @@ message PlatformKeyExtractorConfiguration {
     // out, and best effort support is provided by directing requests to
     // workers of a newer similar platform.
     build.bazel.remote.execution.v2.Platform static = 3;
+
+    // Extract platform properties from the REv2 Action message, but
+    // strip designated property names before computing the routing
+    // key. Use this for properties that the worker honors at execution
+    // time (e.g. cgroup resource hints "cpu", "memory", "gpu") but
+    // that should not shard scheduler queues — otherwise every distinct
+    // resource ask creates its own queue with no matching workers.
+    FilteringActionKeyExtractorConfiguration filtering_action = 4;
   }
 
   // Was 'action_and_command', which caused it to extract platform
@@ -127,6 +135,13 @@ message PlatformKeyExtractorConfiguration {
   // Command message in case the Action message contains no platform
   // properties. This was provided to support REv2.1 and earlier.
   reserved 2;
+}
+
+message FilteringActionKeyExtractorConfiguration {
+  // Property names to drop from Action.Platform before computing the
+  // routing key. The properties themselves are still passed through
+  // unchanged to the worker; only the queue key ignores them.
+  repeated string ignored_property_names = 1;
 }
 
 message InvocationKeyExtractorConfiguration {

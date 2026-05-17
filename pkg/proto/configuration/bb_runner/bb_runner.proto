@@ -135,4 +135,11 @@ message ApplicationConfiguration {
   // https://github.com/bazelbuild/bazel/blob/master/src/main/java/com/google/devtools/build/lib/exec/local/XcodeLocalEnvProvider.java
   // https://www.smileykeith.com/2021/03/08/locking-xcode-in-bazel/
   map<string, string> apple_xcode_developer_directories = 14;
+
+  // Absolute cgroup v2 path under which per-action sub-cgroups are
+  // created (e.g. "/sys/fs/cgroup/bb-actions"). Created on startup if
+  // missing. Required controllers (cpu, memory) are enabled in
+  // cgroup.subtree_control. Empty => cgroup placement disabled and
+  // RunRequest.resource_limits is ignored.
+  string cgroup_parent_path = 15;
 }

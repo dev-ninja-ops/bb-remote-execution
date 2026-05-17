@@ -71,6 +71,7 @@ type localRunner struct {
 	buildDirectoryPath           *path.Builder
 	commandCreator               CommandCreator
 	setTmpdirEnvironmentVariable bool
+	cgroupParentPath             string
 }
 
 func (r *localRunner) openLog(logPath string) (filesystem.FileAppender, error) {
@@ -125,13 +126,16 @@ func NewPlainCommandCreator(sysProcAttr *syscall.SysProcAttr) CommandCreator {
 }
 
 // NewLocalRunner returns a Runner capable of running commands on the
-// local system directly.
-func NewLocalRunner(buildDirectory filesystem.Directory, buildDirectoryPath *path.Builder, commandCreator CommandCreator, setTmpdirEnvironmentVariable bool) runner.RunnerServer {
+// local system directly. cgroupParentPath, when non-empty on Linux,
+// causes each Run() to create a per-action sub-cgroup beneath it and
+// place the spawned process there before exec.
+func NewLocalRunner(buildDirectory filesystem.Directory, buildDirectoryPath *path.Builder, commandCreator CommandCreator, setTmpdirEnvironmentVariable bool, cgroupParentPath string) runner.RunnerServer {
 	return &localRunner{
 		buildDirectory:               buildDirectory,
 		buildDirectoryPath:           buildDirectoryPath,
 		commandCreator:               commandCreator,
 		setTmpdirEnvironmentVariable: setTmpdirEnvironmentVariable,
+		cgroupParentPath:             cgroupParentPath,
 	}
 }
 
@@ -182,6 +186,18 @@ func (r *localRunner) Run(ctx context.Context, request *runner.RunRequest) (*run
 		return nil, util.StatusWrapf(err, "Failed to open stderr path %q", request.StderrPath)
 	}
 	cmd.Stderr = stderr
+
+	// If a cgroup parent is configured and the request includes
+	// resource limits, create a per-action sub-cgroup and place the
+	// child process into it via clone3(CLONE_INTO_CGROUP). On
+	// non-Linux platforms or when limits are absent, this is a no-op.
+	cgroupCleanup, err := r.setupCgroup(cmd, request.ResourceLimits)
+	if err != nil {
+		stdout.Close()
+		stderr.Close()
+		return nil, util.StatusWrap(err, "Failed to set up cgroup")
+	}
+	defer cgroupCleanup()
 
 	// Start the subprocess. We can already close the output files
 	// while the process is running.

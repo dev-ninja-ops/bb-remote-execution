@@ -28,7 +28,7 @@ func TestLocalRunnerCheckReadiness(t *testing.T) {
 	ctrl, ctx := gomock.WithContext(context.Background(), t)
 
 	buildDirectory := mock.NewMockDirectory(ctrl)
-	runner := runner.NewLocalRunner(buildDirectory, &path.EmptyBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+	runner := runner.NewLocalRunner(buildDirectory, &path.EmptyBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 
 	t.Run("NoPathSpecified", func(t *testing.T) {
 		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
@@ -115,7 +115,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// variables should cause the process to be executed in
 		// an empty environment. It should not inherit the
 		// environment of the runner.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		response, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          getEnvCommand,
 			StdoutPath:         "EmptyEnvironment/stdout",
@@ -145,7 +145,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// The environment variables provided in the RunRequest
 		// should be respected. If automatic injection of TMPDIR
 		// is enabled, that variable should also be added.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), true)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), true, "")
 		response, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments: getEnvCommand,
 			EnvironmentVariables: map[string]string{
@@ -203,7 +203,7 @@ func TestLocalRunnerRun(t *testing.T) {
 
 		// Automatic injection of TMPDIR should have no effect
 		// if the command to be run provides its own TMPDIR.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), true)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), true, "")
 		response, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:            getEnvCommand,
 			EnvironmentVariables: envMap,
@@ -247,7 +247,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		} else {
 			exit255Command = []string{"/bin/sh", "-c", "exit 255"}
 		}
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		response, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          exit255Command,
 			StdoutPath:         "NonZeroExitCode/stdout",
@@ -280,7 +280,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// If the process terminates due to a signal, the name
 		// of the signal should be set as part of the POSIX
 		// resource usage message.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		response, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"/bin/sh", "-c", "kill -s KILL $$"},
 			StdoutPath:         "SigKill/stdout",
@@ -315,7 +315,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// against $PATH need to be performed. If PATH is not
 		// set, the action should fail with a non-retriable
 		// error.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"nonexistent_command"},
 			StdoutPath:         "UnknownCommandWithEmptyPath/stdout",
@@ -334,7 +334,7 @@ func TestLocalRunnerRun(t *testing.T) {
 
 		// Even invoking known shell utilities shouldn't be
 		// permitted if PATH points to a nonexistent location.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:            []string{"sh", "-c", "exit 123"},
 			EnvironmentVariables: map[string]string{"PATH": "/nonexistent"},
@@ -362,7 +362,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// working directory. Because the search path is
 		// relative, execve() should be called with a relative
 		// path as well.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		response, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:            []string{"hello.sh"},
 			EnvironmentVariables: map[string]string{"PATH": "subdirectory"},
@@ -393,7 +393,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// of multiple components, no $PATH lookup is performed.
 		// If the path does not exist, the action should fail
 		// with a non-retriable error.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"./nonexistent_command"},
 			StdoutPath:         "UnknownCommandRelative/stdout",
@@ -412,7 +412,7 @@ func TestLocalRunnerRun(t *testing.T) {
 
 		// If argv[0] is an absolute path that does not exist,
 		// we should also return a non-retriable error.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"/nonexistent_command"},
 			StdoutPath:         "UnknownCommandAbsolute/stdout",
@@ -435,7 +435,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// If argv[0] is a binary that cannot be executed we
 		// should also return a non-retriable error. In this
 		// case it's a JPEG file.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"./not_a.binary"},
 			StdoutPath:         "ExecFormatErrorJPEG/stdout",
@@ -492,7 +492,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		//
 		// Test this by attempting to run a tiny Mach-O
 		// executable that uses CPU_TYPE_VAX.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"./not_a.binary"},
 			StdoutPath:         "ExecFormatErrorMachOBadArch/stdout",
@@ -511,7 +511,7 @@ func TestLocalRunnerRun(t *testing.T) {
 
 		// If argv[0] refers to a directory, we should also
 		// return a non-retriable error.
-		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, buildDirectoryPathBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          []string{"/"},
 			StdoutPath:         "UnknownCommandDirectory/stdout",
@@ -532,7 +532,7 @@ func TestLocalRunnerRun(t *testing.T) {
 		// privileges. It shouldn't be possible to trick the
 		// runner into opening files outside the build
 		// directory.
-		runner := runner.NewLocalRunner(buildDirectory, &path.EmptyBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+		runner := runner.NewLocalRunner(buildDirectory, &path.EmptyBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false, "")
 		_, err := runner.Run(context.Background(), &runner_pb.RunRequest{
 			Arguments:          getEnvCommand,
 			StdoutPath:         "hello/../../../../../../etc/passwd",

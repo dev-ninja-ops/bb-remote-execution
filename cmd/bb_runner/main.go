@@ -63,11 +63,22 @@ func main() {
 			commandCreator = runner.NewPlainCommandCreator(sysProcAttr)
 		}
 
+		// If cgroup_parent_path is set, ensure the parent cgroup
+		// exists and has cpu+memory enabled in subtree_control so
+		// child cgroups can be created with those controllers. Empty
+		// path disables cgroup placement entirely.
+		if configuration.CgroupParentPath != "" {
+			if err := ensureCgroupParent(configuration.CgroupParentPath); err != nil {
+				return util.StatusWrap(err, "Failed to initialize cgroup parent")
+			}
+		}
+
 		r := runner.NewLocalRunner(
 			buildDirectory,
 			buildDirectoryPath,
 			commandCreator,
-			configuration.SetTmpdirEnvironmentVariable)
+			configuration.SetTmpdirEnvironmentVariable,
+			configuration.CgroupParentPath)
 
 		// Let bb_runner replace temporary directories with symbolic
 		// links pointing to the temporary directory set up by

@@ -77,6 +77,7 @@ type RunRequest struct {
 	InputRootDirectory   string                 `protobuf:"bytes,6,opt,name=input_root_directory,json=inputRootDirectory,proto3" json:"input_root_directory,omitempty"`
 	TemporaryDirectory   string                 `protobuf:"bytes,7,opt,name=temporary_directory,json=temporaryDirectory,proto3" json:"temporary_directory,omitempty"`
 	ServerLogsDirectory  string                 `protobuf:"bytes,8,opt,name=server_logs_directory,json=serverLogsDirectory,proto3" json:"server_logs_directory,omitempty"`
+	ResourceLimits       map[string]string      `protobuf:"bytes,9,rep,name=resource_limits,json=resourceLimits,proto3" json:"resource_limits,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -167,6 +168,13 @@ func (x *RunRequest) GetServerLogsDirectory() string {
 	return ""
 }
 
+func (x *RunRequest) GetResourceLimits() map[string]string {
+	if x != nil {
+		return x.ResourceLimits
+	}
+	return nil
+}
+
 type RunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ExitCode      int64                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
@@ -225,7 +233,7 @@ const file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_prot
 	"\n" +
 	"Fgithub.com/buildbarn/bb-remote-execution/pkg/proto/runner/runner.proto\x12\x10buildbarn.runner\x1a\x19google/protobuf/any.proto\x1a\x1bgoogle/protobuf/empty.proto\"+\n" +
 	"\x15CheckReadinessRequest\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\"\xe6\x03\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"\x84\x05\n" +
 	"\n" +
 	"RunRequest\x12\x1c\n" +
 	"\targuments\x18\x01 \x03(\tR\targuments\x12k\n" +
@@ -237,8 +245,12 @@ const file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_prot
 	"stderrPath\x120\n" +
 	"\x14input_root_directory\x18\x06 \x01(\tR\x12inputRootDirectory\x12/\n" +
 	"\x13temporary_directory\x18\a \x01(\tR\x12temporaryDirectory\x122\n" +
-	"\x15server_logs_directory\x18\b \x01(\tR\x13serverLogsDirectory\x1aG\n" +
+	"\x15server_logs_directory\x18\b \x01(\tR\x13serverLogsDirectory\x12Y\n" +
+	"\x0fresource_limits\x18\t \x03(\v20.buildbarn.runner.RunRequest.ResourceLimitsEntryR\x0eresourceLimits\x1aG\n" +
 	"\x19EnvironmentVariablesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +
+	"\x13ResourceLimitsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"g\n" +
 	"\vRunResponse\x12\x1b\n" +
@@ -260,27 +272,29 @@ func file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto
 	return file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_rawDescData
 }
 
-var file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_goTypes = []any{
 	(*CheckReadinessRequest)(nil), // 0: buildbarn.runner.CheckReadinessRequest
 	(*RunRequest)(nil),            // 1: buildbarn.runner.RunRequest
 	(*RunResponse)(nil),           // 2: buildbarn.runner.RunResponse
 	nil,                           // 3: buildbarn.runner.RunRequest.EnvironmentVariablesEntry
-	(*anypb.Any)(nil),             // 4: google.protobuf.Any
-	(*emptypb.Empty)(nil),         // 5: google.protobuf.Empty
+	nil,                           // 4: buildbarn.runner.RunRequest.ResourceLimitsEntry
+	(*anypb.Any)(nil),             // 5: google.protobuf.Any
+	(*emptypb.Empty)(nil),         // 6: google.protobuf.Empty
 }
 var file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_depIdxs = []int32{
 	3, // 0: buildbarn.runner.RunRequest.environment_variables:type_name -> buildbarn.runner.RunRequest.EnvironmentVariablesEntry
-	4, // 1: buildbarn.runner.RunResponse.resource_usage:type_name -> google.protobuf.Any
-	0, // 2: buildbarn.runner.Runner.CheckReadiness:input_type -> buildbarn.runner.CheckReadinessRequest
-	1, // 3: buildbarn.runner.Runner.Run:input_type -> buildbarn.runner.RunRequest
-	5, // 4: buildbarn.runner.Runner.CheckReadiness:output_type -> google.protobuf.Empty
-	2, // 5: buildbarn.runner.Runner.Run:output_type -> buildbarn.runner.RunResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 1: buildbarn.runner.RunRequest.resource_limits:type_name -> buildbarn.runner.RunRequest.ResourceLimitsEntry
+	5, // 2: buildbarn.runner.RunResponse.resource_usage:type_name -> google.protobuf.Any
+	0, // 3: buildbarn.runner.Runner.CheckReadiness:input_type -> buildbarn.runner.CheckReadinessRequest
+	1, // 4: buildbarn.runner.Runner.Run:input_type -> buildbarn.runner.RunRequest
+	6, // 5: buildbarn.runner.Runner.CheckReadiness:output_type -> google.protobuf.Empty
+	2, // 6: buildbarn.runner.Runner.Run:output_type -> buildbarn.runner.RunResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_init() }
@@ -294,7 +308,7 @@ func file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_rawDesc), len(file_github_com_buildbarn_bb_remote_execution_pkg_proto_runner_runner_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

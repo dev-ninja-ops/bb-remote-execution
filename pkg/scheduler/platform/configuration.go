@@ -19,6 +19,8 @@ func NewKeyExtractorFromConfiguration(configuration *pb.PlatformKeyExtractorConf
 		return ActionKeyExtractor, nil
 	case *pb.PlatformKeyExtractorConfiguration_Static:
 		return NewStaticKeyExtractor(kind.Static), nil
+	case *pb.PlatformKeyExtractorConfiguration_FilteringAction:
+		return NewFilteringActionKeyExtractor(kind.FilteringAction.IgnoredPropertyNames), nil
 	default:
 		return nil, status.Error(codes.InvalidArgument, "Configuration did not contain a supported platform key extractor type")
 	}

@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official", "multiarch_go_image")
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_img//img:load.bzl", "image_load")
 
 go_library(
     name = "bb_runner_installer_lib",
@@ -26,6 +27,13 @@ container_push_official(
     name = "bb_runner_installer_container_push",
     component = "bb-runner-installer",
     image = ":bb_runner_installer_container",
+)
+
+image_load(
+    name = "bb_runner_installer_container_load",
+    image = ":_bb_runner_installer_container.image",
+    tag = "bb-runner-installer:cgroup-dev",
+    tags = ["manual"],
 )
 
 copy_file(

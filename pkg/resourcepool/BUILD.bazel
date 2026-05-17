@@ -1,0 +1,11 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "resourcepool",
+    srcs = ["pool.go"],
+    importpath = "github.com/buildbarn/bb-remote-execution/pkg/resourcepool",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/proto/configuration/bb_worker",
+    ],
+)

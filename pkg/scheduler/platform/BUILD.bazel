@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "action_key_extractor.go",
         "configuration.go",
+        "filtering_action_key_extractor.go",
         "key.go",
         "key_extractor.go",
         "static_key_extractor.go",
