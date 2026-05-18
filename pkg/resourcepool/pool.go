@@ -43,22 +43,41 @@ type Pool struct {
 // NewPool constructs a Pool from a ResourcePoolConfiguration. A nil
 // config or a fully-zero config yields a Pool that admits every
 // request immediately (back-compat: behaves as if there were no pool).
-func NewPool(cfg *bb_worker.ResourcePoolConfiguration) *Pool {
+//
+// All four quantity fields (cpu, memory, default_cpu, default_memory)
+// are parsed via ParseCPUString / ParseMemoryString, so jsonnet can
+// say `cpu: '40'`, `memory: '450Gi'`, `default_cpu: '1'`,
+// `default_memory: '2Gi'` instead of counting zeroes.
+func NewPool(cfg *bb_worker.ResourcePoolConfiguration) (*Pool, error) {
 	p := &Pool{}
 	if cfg != nil {
-		p.cpuTotal = cfg.CpuMillicores
-		p.cpuFree = cfg.CpuMillicores
-		p.memTotal = cfg.MemoryBytes
-		p.memFree = cfg.MemoryBytes
+		cpuTotal, err := ParseCPUString(cfg.Cpu)
+		if err != nil {
+			return nil, fmt.Errorf("resource_pool.cpu: %w", err)
+		}
+		memTotal, err := ParseMemoryString(cfg.Memory)
+		if err != nil {
+			return nil, fmt.Errorf("resource_pool.memory: %w", err)
+		}
+		defCPU, err := ParseCPUString(cfg.DefaultCpu)
+		if err != nil {
+			return nil, fmt.Errorf("resource_pool.default_cpu: %w", err)
+		}
+		defMem, err := ParseMemoryString(cfg.DefaultMemory)
+		if err != nil {
+			return nil, fmt.Errorf("resource_pool.default_memory: %w", err)
+		}
+		p.cpuTotal, p.cpuFree = cpuTotal, cpuTotal
+		p.memTotal, p.memFree = memTotal, memTotal
 		if len(cfg.GpuUuids) > 0 {
 			p.gpusFree = append(p.gpusFree, cfg.GpuUuids...)
 			p.gpusTotal = len(cfg.GpuUuids)
 		}
-		p.defaultCPU = cfg.DefaultCpuMillicores
-		p.defaultMem = cfg.DefaultMemoryBytes
+		p.defaultCPU = defCPU
+		p.defaultMem = defMem
 	}
 	p.cond = sync.NewCond(&p.mu)
-	return p
+	return p, nil
 }
 
 // DefaultCPUMillicores returns the per-action CPU default to apply

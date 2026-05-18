@@ -132,7 +132,7 @@
 						<td class="text-nowrap" style="font-size: 0.85em">
 							{{with .LiveCgroupStats}}
 								<div>mem: {{.CurrentMemoryBytes | format_bytes}}{{if .RequestedMemoryMax}} / {{.RequestedMemoryMax | format_bytes}}{{end}}</div>
-								<div>cpu: {{cgroup_cpu_seconds .CpuUsageUsec}}s{{with .RequestedCpuMax}} cap {{.}}{{end}}</div>
+								<div>cpu: {{cgroup_cpu_seconds .CpuUsageUsec}}s{{with .RequestedCpuMax}} (cap {{cgroup_cpu_cores .}}){{end}}</div>
 								{{if .NrThrottled}}<div class="text-warning">throttled: {{.NrThrottled}}× / {{cgroup_cpu_seconds .ThrottledUsec}}s</div>{{end}}
 								{{if .OomKillCount}}<div class="text-danger">oom_kill: {{.OomKillCount}}</div>{{end}}
 							{{else}}

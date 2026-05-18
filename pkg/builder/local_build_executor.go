@@ -105,57 +105,20 @@ func NewLocalBuildExecutor(contentAddressableStorage blobstore.BlobAccess, build
 	}
 }
 
-// parseMemoryBytes accepts a plain integer or a value with K8s-style
-// suffixes (Ki/Mi/Gi/Ti or K/M/G/T) and returns bytes.
-func parseMemoryBytes(s string) (uint64, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, nil
-	}
-	multiplier := uint64(1)
-	switch {
-	case strings.HasSuffix(s, "Ki"):
-		multiplier = 1 << 10
-		s = strings.TrimSuffix(s, "Ki")
-	case strings.HasSuffix(s, "Mi"):
-		multiplier = 1 << 20
-		s = strings.TrimSuffix(s, "Mi")
-	case strings.HasSuffix(s, "Gi"):
-		multiplier = 1 << 30
-		s = strings.TrimSuffix(s, "Gi")
-	case strings.HasSuffix(s, "Ti"):
-		multiplier = 1 << 40
-		s = strings.TrimSuffix(s, "Ti")
-	case strings.HasSuffix(s, "K"):
-		multiplier = 1000
-		s = strings.TrimSuffix(s, "K")
-	case strings.HasSuffix(s, "M"):
-		multiplier = 1000 * 1000
-		s = strings.TrimSuffix(s, "M")
-	case strings.HasSuffix(s, "G"):
-		multiplier = 1000 * 1000 * 1000
-		s = strings.TrimSuffix(s, "G")
-	case strings.HasSuffix(s, "T"):
-		multiplier = 1000 * 1000 * 1000 * 1000
-		s = strings.TrimSuffix(s, "T")
-	}
-	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return n * multiplier, nil
-}
-
 // extractResourceRequest reads recognized REv2 Platform property keys
 // (cpu, memory, gpu) from action and command Platforms and returns the
 // parsed amounts. Command.Platform takes precedence over Action.Platform
 // for the same key (newer REv2 versions put Platform on Command).
 //
+// Accepted user-facing formats:
+//   cpu    : "2" (cores), "2.5" (decimal cores), "500m" (millicores)
+//   memory : "8Gi", "512Mi", "2G" (K8s suffixes) or bare bytes
+//   gpu    : integer count
+//
 // When an action omits the cpu or memory key, the corresponding
 // default is substituted so every action runs under a cgroup with
-// sensible limits. A default of 0 disables that fallback (the
-// dimension stays unmetered for actions that don't specify it). GPUs
-// have no default — actions that don't ask for one get none.
+// sensible limits. A default of 0 disables that fallback. GPUs have
+// no default — actions that don't ask for one get none.
 func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Platform, defaultCPU uint32, defaultMem uint64) (cpuMillicores uint32, memBytes uint64, gpuCount int, err error) {
 	props := map[string]string{}
 	for _, src := range []*remoteexecution.Platform{actionPlatform, commandPlatform} {
@@ -167,17 +130,17 @@ func extractResourceRequest(actionPlatform, commandPlatform *remoteexecution.Pla
 		}
 	}
 	if v, ok := props["cpu"]; ok {
-		n, perr := strconv.ParseUint(strings.TrimSpace(v), 10, 32)
+		n, perr := resourcepool.ParseCPUString(v)
 		if perr != nil {
 			err = status.Errorf(codes.InvalidArgument, "Invalid exec_properties.cpu %q: %v", v, perr)
 			return
 		}
-		cpuMillicores = uint32(n)
+		cpuMillicores = n
 	} else {
 		cpuMillicores = defaultCPU
 	}
 	if v, ok := props["memory"]; ok {
-		n, perr := parseMemoryBytes(v)
+		n, perr := resourcepool.ParseMemoryString(v)
 		if perr != nil {
 			err = status.Errorf(codes.InvalidArgument, "Invalid exec_properties.memory %q: %v", v, perr)
 			return

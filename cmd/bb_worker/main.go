@@ -88,7 +88,10 @@ func main() {
 		// Per-action CPU/memory/GPU admission control. The pool is
 		// shared across all runner threads of this worker process so
 		// that resource accounting is consistent.
-		resourcePool := resourcepool.NewPool(configuration.ResourcePool)
+		resourcePool, err := resourcepool.NewPool(configuration.ResourcePool)
+		if err != nil {
+			return util.StatusWrap(err, "Failed to initialize resource pool")
+		}
 
 		// Storage access.
 		zstdPool := zstd.NewPoolFromConfiguration(configuration.ZstdPool)

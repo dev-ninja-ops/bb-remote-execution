@@ -186,24 +186,40 @@ message ApplicationConfiguration {
 }
 
 message ResourcePoolConfiguration {
-  // Total CPU pool, in millicores. 0 disables CPU gating.
-  uint32 cpu_millicores = 1;
+  // Was 'cpu_millicores' (uint32) and 'memory_bytes' (uint64). Replaced
+  // with the human-readable 'cpu' and 'memory' string fields below so
+  // jsonnet config can say `cpu: '40'` / `memory: '450Gi'` instead of
+  // counting zeroes.
+  reserved 1, 2;
 
-  // Total memory pool, in bytes. 0 disables memory gating.
-  uint64 memory_bytes = 2;
+  // Total CPU pool. Accepts whole cores ("40"), decimal cores ("0.5"),
+  // or K8s-style millicores with the 'm' suffix ("40000m"). Empty or
+  // "0" disables CPU gating.
+  string cpu = 6;
+
+  // Total memory pool. Accepts K8s suffixes (Ki / Mi / Gi / Ti for
+  // binary; K / M / G / T for decimal) or bare bytes — e.g. "450Gi",
+  // "460800Mi", "483183820800". Empty or "0" disables memory gating.
+  string memory = 7;
 
   // GPU UUIDs (as reported by `nvidia-smi -L`) that this worker may
   // hand out. The list also caps the total number of GPUs gated.
   // Empty => GPU gating disabled.
   repeated string gpu_uuids = 3;
 
+  // Was 'default_cpu_millicores' and 'default_memory_bytes'. Replaced
+  // by the friendly string fields below.
+  reserved 4, 5;
+
   // Defaults applied when an action's REv2 Platform does not set the
   // corresponding property. Use these to make sure every action runs
-  // under a cgroup with sensible limits, even when the client did not
-  // ask explicitly. 0 means "no default — leave that dimension
-  // unmetered for actions that don't specify it".
-  uint32 default_cpu_millicores = 4;
-  uint64 default_memory_bytes = 5;
+  // under a cgroup with sensible limits even when the client did not
+  // ask explicitly. Empty or "0" disables the default for that
+  // dimension (the action stays unmetered).
+  //
+  // Same syntax as 'cpu' / 'memory' above.
+  string default_cpu = 8;     // e.g. "1" or "500m"
+  string default_memory = 9;  // e.g. "2Gi"
 }
 
 message BuildDirectoryConfiguration {
